@@ -8,6 +8,10 @@ from slack_sdk.errors import SlackApiError
 
 ALL_CONVERSATION_TYPES = "public_channel,private_channel,im,mpim"
 
+# search.messages のページ取得間隔。連続で叩くとレート制限に当たりやすいため間隔を空ける。
+SEARCH_PAGE_DELAY_SECONDS = 1.5
+SEARCH_PAGE_SIZE = 100
+
 
 class SlackStatsClient:
     """Slack Web API の薄いラッパー。レート制限時は自動リトライする。"""
@@ -49,3 +53,24 @@ class SlackStatsClient:
         """検索クエリにヒットするメッセージの総数を返す(本文は取得しない)。"""
         resp = self._call("search_messages", query=query, count=1)
         return resp["messages"]["total"]
+
+    def search_messages_iter(self, query: str, max_results: int | None = None) -> Iterator[dict]:
+        """検索クエリにヒットしたメッセージをページングしながら取得する。"""
+        page = 1
+        fetched = 0
+        while True:
+            resp = self._call(
+                "search_messages", query=query, count=SEARCH_PAGE_SIZE, page=page
+            )
+            messages = resp["messages"]
+            matches = messages.get("matches", [])
+            for match in matches:
+                yield match
+                fetched += 1
+                if max_results is not None and fetched >= max_results:
+                    return
+            total_pages = messages.get("paging", {}).get("pages", 1)
+            if page >= total_pages or not matches:
+                return
+            page += 1
+            time.sleep(SEARCH_PAGE_DELAY_SECONDS)
