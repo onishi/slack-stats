@@ -10,7 +10,13 @@ from rich.console import Console
 from rich.table import Table
 
 from .client import ALL_CONVERSATION_TYPES, SlackStatsClient
-from .formatting import build_search_query, categorize_channels
+from .formatting import (
+    WEEKDAY_LABELS,
+    build_search_query,
+    categorize_channels,
+    render_bar,
+    summarize_activity,
+)
 
 console = Console()
 
@@ -132,6 +138,51 @@ def summary(since: str | None, until: str | None, top: int) -> None:
         for name, count in results[:top]:
             top_table.add_row(f"#{name}", str(count))
         console.print(top_table)
+
+
+@main.command()
+@click.option("--since", help="この日付以降を集計 (YYYY-MM-DD)")
+@click.option("--until", help="この日付以前を集計 (YYYY-MM-DD)")
+@click.option(
+    "--max-messages",
+    type=int,
+    default=1000,
+    help="集計に使う最大メッセージ数。0を指定すると全件取得する(件数が多いと時間がかかります)",
+)
+def activity(since: str | None, until: str | None, max_messages: int) -> None:
+    """曜日別・時間帯別の発言傾向を表示する(実行環境のローカルタイムゾーン基準)。"""
+    client = get_client()
+    query = build_search_query(since=since, until=until)
+    limit = None if max_messages == 0 else max_messages
+
+    console.print(f"発言データを取得中... (検索クエリ: {query})")
+    matches = list(client.search_messages_iter(query, max_results=limit))
+    if not matches:
+        console.print("[yellow]該当する発言が見つかりませんでした。[/yellow]")
+        return
+    console.print(f"{len(matches)} 件のメッセージを集計しました。\n")
+
+    weekday_counts, hour_counts = summarize_activity(matches)
+
+    weekday_table = Table(title="曜日別の発言数")
+    weekday_table.add_column("曜日")
+    weekday_table.add_column("件数", justify="right")
+    weekday_table.add_column("")
+    max_weekday = max(weekday_counts.values())
+    for label in WEEKDAY_LABELS:
+        count = weekday_counts[label]
+        weekday_table.add_row(label, str(count), render_bar(count, max_weekday))
+    console.print(weekday_table)
+
+    hour_table = Table(title="時間帯別の発言数")
+    hour_table.add_column("時")
+    hour_table.add_column("件数", justify="right")
+    hour_table.add_column("")
+    max_hour = max(hour_counts.values())
+    for hour in range(24):
+        count = hour_counts[hour]
+        hour_table.add_row(f"{hour:02d}時", str(count), render_bar(count, max_hour))
+    console.print(hour_table)
 
 
 if __name__ == "__main__":
