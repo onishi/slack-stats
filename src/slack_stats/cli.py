@@ -45,22 +45,43 @@ def get_client() -> SlackStatsClient:
 
 @click.group()
 def main() -> None:
-    """Slack の自分の発言数・参加チャンネル数などを調べる CLI ツール。"""
+    """Slack での自分の発言数・参加チャンネル数・発言傾向などを調べる CLI ツール。
+
+    Slack の検索 API (search.messages) と会話一覧 API (users.conversations) を
+    使ってこれらの指標を集計します。事前に SLACK_USER_TOKEN 環境変数(または
+    .env ファイル)にユーザートークン (xoxp-...) を設定してください。
+    セットアップ手順は README.md を参照してください。
+    """
 
 
 @main.command()
 def whoami() -> None:
-    """トークンに紐づくユーザー情報を表示する。"""
+    """トークンに紐づくユーザー・ワークスペース情報を表示する。
+
+    設定した SLACK_USER_TOKEN が正しいか、意図したワークスペースに
+    紐づいているかを確認するための疎通確認用コマンドです。
+    """
     client = get_client()
     info = client.whoami()
     console.print(f"User: [bold]{info['user']}[/bold] ({info['user_id']})  Team: {info['team']}")
 
 
-@main.command()
-@click.option("--since", help="この日付以降を集計 (YYYY-MM-DD)")
-@click.option("--until", help="この日付以前を集計 (YYYY-MM-DD)")
+@main.command(
+    epilog=(
+        "例:\n\n"
+        "  slack-stats messages\n\n"
+        "  slack-stats messages --since 2026-01-01 --until 2026-07-01\n"
+    )
+)
+@click.option("--since", help="この日付以降を集計する (YYYY-MM-DD)。指定日を含まない。")
+@click.option("--until", help="この日付以前を集計する (YYYY-MM-DD)。指定日を含まない。")
 def messages(since: str | None, until: str | None) -> None:
-    """自分の発言数を表示する。"""
+    """自分の発言数を表示する。
+
+    Slack の検索クエリ `from:me` を使い、ワークスペース全体での自分の
+    発言総数を集計します(本文の取得は行わないため高速です)。
+    --since / --until で期間を絞り込めます。
+    """
     client = get_client()
     query = build_search_query(since=since, until=until)
     total = client.search_message_count(query)
@@ -69,7 +90,11 @@ def messages(since: str | None, until: str | None) -> None:
 
 @main.command()
 def channels() -> None:
-    """参加チャンネル一覧・種別ごとの件数を表示する。"""
+    """参加チャンネル一覧・種別ごとの件数を表示する。
+
+    自分が参加しているパブリックチャンネル・プライベートチャンネル・
+    DM・グループDM の件数を種別ごとに集計します。
+    """
     client = get_client()
     all_channels = list(client.list_conversations(ALL_CONVERSATION_TYPES))
     counts = categorize_channels(all_channels)
@@ -83,17 +108,31 @@ def channels() -> None:
     console.print(table)
 
 
-@main.command()
-@click.option("--since", help="この日付以降を集計 (YYYY-MM-DD)")
-@click.option("--until", help="この日付以前を集計 (YYYY-MM-DD)")
+@main.command(
+    epilog=(
+        "例:\n\n"
+        "  slack-stats summary\n\n"
+        "  slack-stats summary --since 2026-01-01 --top 5\n"
+    )
+)
+@click.option("--since", help="この日付以降を集計する (YYYY-MM-DD)。指定日を含まない。")
+@click.option("--until", help="この日付以前を集計する (YYYY-MM-DD)。指定日を含まない。")
 @click.option(
     "--top",
     type=int,
     default=0,
-    help="発言数の多いチャンネルを上位N件表示する (チャンネル数分だけAPI呼び出しが増えるため既定は無効)",
+    help=(
+        "発言数の多いチャンネルを上位N件表示する。0(既定)で無効。"
+        " チャンネル数だけ検索APIを呼び出すため、指定するとチャンネル数に応じて時間がかかる。"
+    ),
 )
 def summary(since: str | None, until: str | None, top: int) -> None:
-    """発言数・参加チャンネル数などをまとめて表示する。"""
+    """発言数・参加チャンネル数などをまとめて表示する。
+
+    channels コマンドと messages コマンドの内容をひとつにまとめたダイジェスト
+    表示です。--top N を指定すると、発言数の多いチャンネルの上位N件も
+    追加で集計します(チャンネルごとに検索APIを呼ぶため時間がかかります)。
+    """
     client = get_client()
 
     who = client.whoami()
@@ -140,17 +179,32 @@ def summary(since: str | None, until: str | None, top: int) -> None:
         console.print(top_table)
 
 
-@main.command()
-@click.option("--since", help="この日付以降を集計 (YYYY-MM-DD)")
-@click.option("--until", help="この日付以前を集計 (YYYY-MM-DD)")
+@main.command(
+    epilog=(
+        "例:\n\n"
+        "  slack-stats activity\n\n"
+        "  slack-stats activity --since 2026-01-01 --max-messages 0\n"
+    )
+)
+@click.option("--since", help="この日付以降を集計する (YYYY-MM-DD)。指定日を含まない。")
+@click.option("--until", help="この日付以前を集計する (YYYY-MM-DD)。指定日を含まない。")
 @click.option(
     "--max-messages",
     type=int,
     default=1000,
-    help="集計に使う最大メッセージ数。0を指定すると全件取得する(件数が多いと時間がかかります)",
+    help=(
+        "集計に使う最大メッセージ数(既定1000件)。0を指定すると全件取得する。"
+        " 件数が多いと search.messages のページ取得回数が増え、時間がかかる。"
+    ),
 )
 def activity(since: str | None, until: str | None, max_messages: int) -> None:
-    """曜日別・時間帯別の発言傾向を表示する(実行環境のローカルタイムゾーン基準)。"""
+    """曜日別・時間帯別の発言傾向をバーチャートで表示する。
+
+    自分の発言を search.messages でページングしながら取得し、各メッセージの
+    タイムスタンプから曜日別・時間帯別の件数を集計します。曜日・時間帯は
+    実行環境のローカルタイムゾーンで判定されるため、リモート環境で実行する
+    場合は結果が想定と異なる場合があります(TZ 環境変数などで調整してください)。
+    """
     client = get_client()
     query = build_search_query(since=since, until=until)
     limit = None if max_messages == 0 else max_messages
