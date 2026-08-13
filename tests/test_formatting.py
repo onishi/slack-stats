@@ -1,4 +1,18 @@
-from slack_stats.formatting import build_search_query, categorize_channels
+from slack_stats.formatting import (
+    build_search_query,
+    categorize_channels,
+    categorize_messages,
+    format_percentage,
+)
+
+
+def test_format_percentage_with_one_decimal_place():
+    assert format_percentage(1, 3) == "33.3%"
+    assert format_percentage(3, 4) == "75.0%"
+
+
+def test_format_percentage_with_zero_total():
+    assert format_percentage(0, 0) == "0.0%"
 
 
 def test_categorize_channels_counts_each_type():
@@ -24,6 +38,35 @@ def test_categorize_channels_empty_list():
         "private_channel": 0,
         "im": 0,
         "mpim": 0,
+    }
+
+
+def test_categorize_messages_counts_each_conversation_type():
+    messages = [
+        {"type": "message", "channel": {"id": "C1", "is_private": False}},
+        {"type": "message", "channel": {"id": "C2", "is_private": True}},
+        {"type": "group", "channel": {"id": "G1", "is_private": True}},
+        {"type": "im", "channel": {"id": "D1"}},
+        {"type": "group", "channel": {"id": "G2", "is_mpim": True}},
+        {"type": "message"},
+    ]
+
+    assert categorize_messages(messages) == {
+        "public_channel": 1,
+        "private_channel": 2,
+        "im": 1,
+        "mpim": 1,
+        "unknown": 1,
+    }
+
+
+def test_categorize_messages_empty_list():
+    assert categorize_messages([]) == {
+        "public_channel": 0,
+        "private_channel": 0,
+        "im": 0,
+        "mpim": 0,
+        "unknown": 0,
     }
 
 

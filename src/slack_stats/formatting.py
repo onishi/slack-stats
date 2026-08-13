@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 
+def format_percentage(count: int, total: int) -> str:
+    """件数を合計に対する小数1桁の割合へ整形する。"""
+    if total == 0:
+        return "0.0%"
+    return f"{count / total:.1%}"
+
+
 def categorize_channels(channels: list[dict]) -> dict[str, int]:
     """チャンネル一覧を種別ごとの件数に集計する。"""
     counts = {"public_channel": 0, "private_channel": 0, "im": 0, "mpim": 0}
@@ -13,6 +20,30 @@ def categorize_channels(channels: list[dict]) -> dict[str, int]:
             counts["private_channel"] += 1
         else:
             counts["public_channel"] += 1
+    return counts
+
+
+def categorize_messages(messages: list[dict]) -> dict[str, int]:
+    """検索結果のメッセージを会話種別ごとの件数に集計する。"""
+    counts = {
+        "public_channel": 0,
+        "private_channel": 0,
+        "im": 0,
+        "mpim": 0,
+        "unknown": 0,
+    }
+    for message in messages:
+        channel = message.get("channel") or {}
+        if channel.get("is_mpim"):
+            counts["mpim"] += 1
+        elif message.get("type") == "im" or channel.get("is_im"):
+            counts["im"] += 1
+        elif channel.get("is_private") or message.get("type") == "group":
+            counts["private_channel"] += 1
+        elif channel:
+            counts["public_channel"] += 1
+        else:
+            counts["unknown"] += 1
     return counts
 
 

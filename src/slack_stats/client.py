@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import time
 from typing import Any, Iterator
 
@@ -49,3 +50,44 @@ class SlackStatsClient:
         """検索クエリにヒットするメッセージの総数を返す(本文は取得しない)。"""
         resp = self._call("search_messages", query=query, count=1)
         return resp["messages"]["total"]
+
+    def search_message_results(self, query: str) -> tuple[int, list[dict]]:
+        """検索結果を全ページ取得し、総数とメッセージ一覧を返す。"""
+        cursor: str | None = "*"
+        page = 1
+        total = 0
+        matches: list[dict] = []
+
+        while True:
+            pagination = {"cursor": cursor} if cursor is not None else {"page": page}
+            resp = self._call(
+                "search_messages",
+                query=query,
+                count=100,
+                sort="timestamp",
+                sort_dir="desc",
+                **pagination,
+            )
+            messages = resp["messages"]
+            total = messages["total"]
+            matches.extend(messages.get("matches", []))
+
+            next_cursor = resp.get("response_metadata", {}).get("next_cursor")
+            if next_cursor:
+                cursor = next_cursor
+                continue
+
+            paging = messages.get("paging") or messages.get("pagination") or {}
+            page = int(paging.get("page", page))
+            pages = int(
+                paging.get("pages")
+                or paging.get("page_count")
+                or math.ceil(total / 100)
+            )
+            if page < pages:
+                cursor = None
+                page += 1
+                continue
+            break
+
+        return total, matches
