@@ -80,3 +80,25 @@ def test_search_message_results_calculates_pages_from_total_as_fallback():
     assert total == 201
     assert len(matches) == 3
     assert [call["page"] for call in fake.calls[1:]] == [2, 3]
+
+
+def test_search_message_results_stops_at_legacy_page_limit():
+    client = SlackStatsClient("xoxp-test")
+    fake = FakePageWebClient()
+    client._client = fake
+
+    original_search = fake.search_messages
+
+    def search_over_page_limit(**kwargs):
+        response = original_search(**kwargs)
+        response["messages"]["pagination"]["page_count"] = 101
+        response["messages"]["total"] = 10_001
+        return response
+
+    fake.search_messages = search_over_page_limit
+
+    total, matches = client.search_message_results("from:me")
+
+    assert total == 10_001
+    assert len(matches) == 100
+    assert fake.calls[-1]["page"] == 100

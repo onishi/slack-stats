@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import sys
-import time
 
 import click
 from dotenv import load_dotenv
@@ -14,7 +13,9 @@ from .formatting import (
     build_search_query,
     categorize_channels,
     categorize_messages,
+    format_message_label,
     format_percentage,
+    rank_message_channels,
 )
 
 console = Console()
@@ -33,8 +34,10 @@ MESSAGE_CATEGORY_LABELS = {
     "mpim": "グループDM",
 }
 
-# search.messages は Slack 側のレート制限が厳しいため、連続呼び出し間に間隔を空ける。
-TOP_CHANNEL_QUERY_DELAY_SECONDS = 2.0
+CHANNEL_TYPE_LABELS = {
+    "public_channel": "パブリック",
+    "private_channel": "プライベート",
+}
 
 
 def get_client() -> SlackStatsClient:
@@ -74,16 +77,17 @@ def messages(since: str | None, until: str | None, breakdown: bool) -> None:
     """自分の発言数を表示する。"""
     client = get_client()
     query = build_search_query(since=since, until=until)
+    message_label = format_message_label(since=since, until=until)
     if not breakdown:
         total = client.search_message_count(query)
-        console.print(f"発言数: [bold]{total}[/bold] 件  (検索クエリ: {query})")
+        console.print(f"{message_label}: [bold]{total}[/bold] 件  (検索クエリ: {query})")
         return
 
     console.print("発言数の内訳を集計中...")
     total, matches = client.search_message_results(query)
     counts = categorize_messages(matches)
 
-    table = Table(title="発言数の内訳")
+    table = Table(title=f"{message_label}の内訳")
     table.add_column("種別")
     table.add_column("件数", justify="right")
     table.add_column("割合", justify="right")
@@ -98,7 +102,7 @@ def messages(since: str | None, until: str | None, breakdown: bool) -> None:
     table.add_row("合計", str(total), format_percentage(total, total), style="bold")
     console.print(table)
     console.print(f"検索クエリ: {query}")
-    warn_if_incomplete_breakdown(total, counts)
+    warn_if_incomplete_results(total, len(matches))
 
 
 @main.command()
@@ -126,7 +130,7 @@ def channels() -> None:
     "--top",
     type=int,
     default=0,
-    help="発言数の多いチャンネルを上位N件表示する (チャンネル数分だけAPI呼び出しが増えるため既定は無効)",
+    help="検索結果を集計し、発言数の多いチャンネルを上位N件表示する",
 )
 @click.option(
     "--breakdown",
@@ -144,11 +148,14 @@ def summary(since: str | None, until: str | None, top: int, breakdown: bool) -> 
     counts = categorize_channels(all_channels)
 
     query = build_search_query(since=since, until=until)
+    message_label = format_message_label(since=since, until=until)
     message_counts = None
-    if breakdown:
-        console.print("発言数の内訳を集計中...")
+    matches = None
+    if breakdown or top > 0:
+        console.print("発言データを集計中...")
         total_messages, matches = client.search_message_results(query)
-        message_counts = categorize_messages(matches)
+        if breakdown:
+            message_counts = categorize_messages(matches)
     else:
         total_messages = client.search_message_count(query)
 
@@ -169,7 +176,7 @@ def summary(since: str | None, until: str | None, top: int, breakdown: bool) -> 
             format_percentage(counts[key], channel_total),
         )
     table.add_row(
-        "発言数",
+        message_label,
         str(total_messages),
         format_percentage(total_messages, total_messages),
     )
@@ -187,44 +194,31 @@ def summary(since: str | None, until: str | None, top: int, breakdown: bool) -> 
                 format_percentage(message_counts["unknown"], total_messages),
             )
     console.print(table)
-    if message_counts is not None:
-        warn_if_incomplete_breakdown(total_messages, message_counts)
+    if matches is not None:
+        warn_if_incomplete_results(total_messages, len(matches))
 
-    if top > 0:
-        named_channels = [
-            ch
-            for ch in all_channels
-            if not ch.get("is_im") and not ch.get("is_mpim") and ch.get("name")
-        ]
-        console.print(
-            f"\n発言数の多いチャンネルを集計中... "
-            f"({len(named_channels)} チャンネル、レート制限のため時間がかかる場合があります)"
-        )
-        results = []
-        for i, ch in enumerate(named_channels):
-            if i > 0:
-                time.sleep(TOP_CHANNEL_QUERY_DELAY_SECONDS)
-            q = build_search_query(in_channel=f"#{ch['name']}", since=since, until=until)
-            count = client.search_message_count(q)
-            if count > 0:
-                results.append((ch["name"], count))
-        results.sort(key=lambda x: x[1], reverse=True)
-
+    if top > 0 and matches is not None:
+        results = rank_message_channels(matches)
         top_table = Table(title=f"発言数の多いチャンネル (上位{top}件)")
         top_table.add_column("チャンネル")
+        top_table.add_column("種別")
         top_table.add_column("発言数", justify="right")
-        for name, count in results[:top]:
-            top_table.add_row(f"#{name}", str(count))
+        for name, channel_type, count in results[:top]:
+            top_table.add_row(
+                f"#{name}",
+                CHANNEL_TYPE_LABELS[channel_type],
+                str(count),
+            )
         console.print(top_table)
 
 
-def warn_if_incomplete_breakdown(total: int, counts: dict[str, int]) -> None:
-    """API総数と取得できた内訳の合計が異なる場合に警告する。"""
-    categorized = sum(counts.values())
-    if categorized != total:
+def warn_if_incomplete_results(total: int, retrieved: int) -> None:
+    """API総数と取得できた検索結果数が異なる場合に警告する。"""
+    if retrieved != total:
         console.print(
             f"[yellow]注意: Slack API上の合計は {total} 件ですが、"
-            f"内訳を取得できたのは {categorized} 件です。[/yellow]"
+            f"集計できたのは {retrieved} 件です。"
+            f"正確な内訳・ランキングには期間を狭めてください。[/yellow]"
         )
 
 

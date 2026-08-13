@@ -49,6 +49,7 @@ slack-stats channels
 slack-stats messages
 
 # 期間を指定して発言数を表示
+# 表示例: 発言数(2026-01-01~2026-07-01)
 slack-stats messages --since 2026-01-01 --until 2026-07-01
 
 # 発言数をパブリック / プライベート / DM / グループDM別に表示
@@ -61,9 +62,9 @@ slack-stats summary
 # 発言数の会話種別別の内訳もまとめて表示
 slack-stats summary --since 2026-01-01 --breakdown
 
-# 発言数の多いチャンネル上位5件も合わせて表示
-# (チャンネル数だけ検索APIを呼ぶため、チャンネル数が多いと時間がかかります)
-slack-stats summary --top 5
+# 発言数の多いチャンネル上位5件をパブリック/プライベートの種別付きで表示
+# (期間内の検索結果をまとめて取得し、チャンネル別に集計します)
+slack-stats summary --since 2026-01-01 --top 5
 ```
 
 ## 開発
@@ -75,5 +76,6 @@ pytest
 
 ## 注意事項
 
-- `search.messages` は Slack のレート制限が厳しめです。`--breakdown` / `--top` オプション使用時や大規模ワークスペースでは実行に時間がかかる場合があります(自動でリトライします)。
+- `search.messages` は Slack のレート制限が厳しめです。`--breakdown` / `--top` は検索結果を100件ずつ取得するため、発言数が多い期間では時間がかかる場合があります(自動でリトライします)。
+- `search.messages` の従来ページ方式では最大10,000件まで取得できます。それを超える場合は警告を表示するため、`--since` / `--until` で期間を狭めてください。
 - `after:` / `before:` は指定日を含まない検索になります(Slack 検索構文の仕様)。

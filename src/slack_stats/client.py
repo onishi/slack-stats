@@ -79,10 +79,13 @@ class SlackStatsClient:
 
             paging = messages.get("paging") or messages.get("pagination") or {}
             page = int(paging.get("page", page))
-            pages = int(
-                paging.get("pages")
-                or paging.get("page_count")
-                or math.ceil(total / 100)
+            pages = min(
+                int(
+                    paging.get("pages")
+                    or paging.get("page_count")
+                    or math.ceil(total / 100)
+                ),
+                100,
             )
             if page < pages:
                 cursor = None
