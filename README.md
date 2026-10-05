@@ -2,14 +2,14 @@
 
 Slack での自分の発言数・参加チャンネル数・発言傾向などを調べる CLI ツールです。
 
-- 発言数(全体 / 期間指定 / チャンネル別)
-- 参加チャンネル数(パブリック / プライベート / DM / グループDM の内訳)
+- 発言数(全体 / 期間指定 / 会話種別別の件数・割合 / チャンネル別)
+- 参加チャンネル数(パブリック / プライベート / DM / グループDM の件数・割合)
 - 発言数の多いチャンネル ランキング(任意)
 - 曜日別・時間帯別の発言傾向(バーチャート表示)
 
 内部的には Slack の検索 API (`search.messages`) と会話一覧 API
-(`users.conversations`) を呼び出して集計しています。メッセージ本文の取得は
-行わないため、比較的高速に動作します。
+(`users.conversations`) を呼び出して集計しています。発言数だけを表示する
+場合は本文を取得しないため、比較的高速に動作します。
 
 ## セットアップ
 
@@ -100,12 +100,16 @@ slack-stats messages
 
 # 期間を指定して発言数を表示(--since は指定日を含まない)
 slack-stats messages --since 2026-01-01 --until 2026-07-01
+
+# 会話種別別の件数・割合も表示
+slack-stats messages --since 2026-01-01 --breakdown
 ```
 
 | オプション | 説明 |
 | --- | --- |
 | `--since YYYY-MM-DD` | この日付以降を集計(指定日を含まない) |
 | `--until YYYY-MM-DD` | この日付以前を集計(指定日を含まない) |
+| `--breakdown` | 会話種別別の件数・割合を表示 |
 
 ### `summary`
 
@@ -114,8 +118,11 @@ slack-stats messages --since 2026-01-01 --until 2026-07-01
 slack-stats summary
 
 # 発言数の多いチャンネル上位5件も合わせて表示
-# (チャンネル数だけ検索APIを呼ぶため、チャンネル数が多いと時間がかかります)
+# (期間内の検索結果を取得してチャンネル別に集計します)
 slack-stats summary --since 2026-01-01 --top 5
+
+# 発言数の会話種別別の件数・割合も表示
+slack-stats summary --since 2026-01-01 --breakdown
 ```
 
 | オプション | 説明 |
@@ -123,6 +130,7 @@ slack-stats summary --since 2026-01-01 --top 5
 | `--since YYYY-MM-DD` | この日付以降を集計 |
 | `--until YYYY-MM-DD` | この日付以前を集計 |
 | `--top N` | 発言数の多いチャンネルを上位N件表示(既定は0=無効) |
+| `--breakdown` | 発言数の会話種別別の件数・割合を表示 |
 
 ### `activity`
 
@@ -157,8 +165,8 @@ pytest
 
 ## 注意事項・トラブルシューティング
 
-- `search.messages` は Slack のレート制限が厳しめです。`summary --top` や
-  `activity` コマンド使用時、大規模ワークスペースでは実行に時間がかかる
+- `search.messages` は Slack のレート制限が厳しめです。`--breakdown`、
+  `summary --top`、`activity` の使用時、大規模ワークスペースでは実行に時間がかかる
   場合があります(429 が返った場合は `Retry-After` を尊重して自動リトライ
   します)。
 - `after:` / `before:` は指定日を**含まない**検索になります(Slack 検索構文

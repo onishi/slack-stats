@@ -1,16 +1,16 @@
 from __future__ import annotations
 
+import math
 import time
 from typing import Any, Iterator
 
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-ALL_CONVERSATION_TYPES = "public_channel,private_channel,im,mpim"
-
-# search.messages のページ取得間隔。連続で叩くとレート制限に当たりやすいため間隔を空ける。
 SEARCH_PAGE_DELAY_SECONDS = 1.5
 SEARCH_PAGE_SIZE = 100
+
+ALL_CONVERSATION_TYPES = "public_channel,private_channel,im,mpim"
 
 
 class SlackStatsClient:
@@ -53,6 +53,50 @@ class SlackStatsClient:
         """検索クエリにヒットするメッセージの総数を返す(本文は取得しない)。"""
         resp = self._call("search_messages", query=query, count=1)
         return resp["messages"]["total"]
+
+    def search_message_results(self, query: str) -> tuple[int, list[dict]]:
+        """検索結果を全ページ取得し、総数とメッセージ一覧を返す。"""
+        cursor: str | None = "*"
+        page = 1
+        total = 0
+        matches: list[dict] = []
+
+        while True:
+            pagination = {"cursor": cursor} if cursor is not None else {"page": page}
+            resp = self._call(
+                "search_messages",
+                query=query,
+                count=100,
+                sort="timestamp",
+                sort_dir="desc",
+                **pagination,
+            )
+            messages = resp["messages"]
+            total = messages["total"]
+            matches.extend(messages.get("matches", []))
+
+            next_cursor = resp.get("response_metadata", {}).get("next_cursor")
+            if next_cursor:
+                cursor = next_cursor
+                continue
+
+            paging = messages.get("paging") or messages.get("pagination") or {}
+            page = int(paging.get("page", page))
+            pages = min(
+                int(
+                    paging.get("pages")
+                    or paging.get("page_count")
+                    or math.ceil(total / 100)
+                ),
+                100,
+            )
+            if page < pages:
+                cursor = None
+                page += 1
+                continue
+            break
+
+        return total, matches
 
     def search_messages_iter(self, query: str, max_results: int | None = None) -> Iterator[dict]:
         """検索クエリにヒットしたメッセージをページングしながら取得する。"""
